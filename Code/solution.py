@@ -114,7 +114,7 @@ def change_product(time, demands, profits):
 
     """
 
-    old = input('Enter product name you want to change: ').upper()
+    old = input(f'Enter product name you want to change {list(demands.columns[1:])}: ').upper()
 
     if old not in list(time['Product'].values):
         print("Product not found!")
@@ -164,6 +164,7 @@ def introduce_product(time, demands, profits):
     pd.DataFrame, pd.DataFrame, pd.DataFrame   
 
     """
+
     new = input("Enter a new product name: ").upper()
     new_demands = demands.copy()
 
@@ -173,7 +174,7 @@ def introduce_product(time, demands, profits):
         print("Demands must be provided.")
 
     demand = list(map(float, demand.split()))
-    demands[new] = demand
+    new_demands[new] = demand
    
 
     profit = input("Enter profits for new product: ")
@@ -186,22 +187,22 @@ def introduce_product(time, demands, profits):
     profit = list(map(float, profit.split()))
     new_profits[new] = profit
     
-    time = input("Enter time for new product: ") 
+    tm = input("Enter time for new product: ") 
     new_time = time.copy()
 
-    if not time:
+    if not tm:
         print("Time must be provided.")
         return
         
-    time = float(time)
+    tm = float(tm)
 
-    new_row = {'Product': new, 'Time(Mins)': time}
-    new_time.append(new_row, ignore_index=True)
+    new_row = {'Product': new, 'Time(Mins)': tm}
+    new_time = new_time.append(new_row, ignore_index=True)
 
     return new_time, new_demands, new_profits
 
     
-def create_output(lp, products, markets):
+def create_output(lp, demands):
     """
     Creates output excel file for given lp problem and saves it to Tables folder. 
 
@@ -212,6 +213,14 @@ def create_output(lp, products, markets):
     None
 
     """ 
+
+    products = list(demands.columns)[1:]
+
+    # read demands table
+    markets = list(demands['Areas'].values)
+
+    # rename sales areas to Area - i
+    markets = ["-".join(markets[i].split()[1:]) for i in range(len(markets))]
 
     variables = lp.variables()
     products = {product: list() for product in products}
@@ -232,6 +241,46 @@ def create_output(lp, products, markets):
     output.to_excel(f"../Tables/{lp.name}_output.xlsx", index=False)
 
     return output
+
+
+def check_demands(lp, demands):
+    """
+    Compares sum of each product in lp output and demands and finds 
+    satisfied and unsatisfied products.
+
+    Parameters:
+    pulp.LpProblem, pd.DataFrame
+
+    Returns:
+    list[str], list[str]
+
+    """ 
+
+    products = list(demands.columns)[1:]
+
+    # read demands table
+    markets = list(demands['Areas'].values)
+
+    # rename sales areas to Area - i
+    markets = ["-".join(markets[i].split()[1:]) for i in range(len(markets))]
+
+    # take result of lp
+    output = create_output(lp, demands)
+
+    satisfied = list()
+    unsatisfied = list()
+
+    for product in products:
+        if demands[product].sum() == output[product].sum():
+            satisfied.append(product)
+        else:
+            unsatisfied.append(product)
+
+
+    print("Satisfied Products: ", satisfied)
+    print("Unsatisfied Products: ", unsatisfied)
+
+    return satisfied, unsatisfied
 
 
 def solve_lp(name, time, demands, profits):
@@ -284,11 +333,6 @@ def solve_lp(name, time, demands, profits):
 
         profits_dict[markets[i]] = profit
 
-    print("\nData used for lp: ")
-    print(time_dict)
-    print(demands_dict)
-    print(profits_dict)
-
     # create lp problem
     lp = pulp.LpProblem(name, sense=pulp.LpMaximize)
 
@@ -305,28 +349,28 @@ def solve_lp(name, time, demands, profits):
     # print problem status
     print(f"\nSolution Status for {name}: ", pulp.LpStatus[lp.status])
 
-    # print variable values
-    # for variable in lp.variables():
-    #     print("{} = {}".format(variable.name, variable.varValue))
-
     # print objective value
     print(f"\nObjective Value for {name}: ", pulp.value(lp.objective))
 
-    output = create_output(lp, products, markets)
+    output = create_output(lp, demands)
+    check_demands(lp, demands)
 
     print(output)
 
-
-# read excel files
+    # return lp problem.
+    return lp
 
 if __name__ == '__main__':
-
+    
+    # read excel files
     time = pd.read_excel('../Tables/time.xlsx')
     demands = pd.read_excel('../Tables/demands.xlsx')
     profits = pd.read_excel('../Tables/profits.xlsx')
 
     # do change here if you like add or change a product.
     sensivitiy_analysis = False
+
+    time_new, demands_new, profits_new = time, demands, profits
 
     if 'y' == input("Do you want to change any product (y/n): "):
         sensivitiy_analysis = True
@@ -336,12 +380,22 @@ if __name__ == '__main__':
         sensivitiy_analysis = True
         time_new, demands_new, profits_new = introduce_product(time_new, demands_new, profits_new)
 
+    print("\n\nTables used for Initial Problem:")
+    print(time)
+    print(demands)
+    print(profits)
 
     if sensivitiy_analysis:
-        solve_lp("InitialProblem", time, demands, profits)
-        solve_lp("ChangedProblem", time_new, demands_new, profits_new)
+        init_lp = solve_lp("InitialProblem", time, demands, profits)
+    
+        print("\n\nTables used for Modified Problem:")
+        print(time_new)
+        print(demands_new)
+        print(profits_new)
+    
+        changed_lp = solve_lp("ChangedProblem", time_new, demands_new, profits_new)
     else:
-        solve_lp("InitialProblem", time, demands, profits)
+        init_lp = solve_lp("InitialProblem", time, demands, profits)
 
 
 
